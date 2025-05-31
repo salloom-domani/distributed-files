@@ -108,15 +108,6 @@ public class MyNode extends UnicastRemoteObject implements NodeInterface {
   }
 
   @Override
-  public void synchronizeWithPeers(List<Integer> ids) {
-    for (int peerId : ids) {
-      if (peerId != nodeId) {
-        SyncClient.syncWith(nodeId); // update this if peer ID is needed
-      }
-    }
-  }
-
-  @Override
   public Map<String, Long> getFileTimestamps() {
     Map<String, Long> result = new HashMap<>();
     try (Stream<Path> paths = Files.walk(baseDir)) {
@@ -136,36 +127,32 @@ public class MyNode extends UnicastRemoteObject implements NodeInterface {
   }
 
   @Override
-  public byte[] readFileByPath(String relativePath) {
-    try {
-      Path fullPath = baseDir.resolve(relativePath);
-      return Files.readAllBytes(fullPath);
-    } catch (IOException e) {
-      return null;
-    }
-  }
+  public void syncFrom(Map<String, Integer> fileToSource, List<String> filesToDelete) throws RemoteException {
+    new Thread(() -> {
+      try {
+        for (Map.Entry<String, Integer> entry : fileToSource.entrySet()) {
+          String filePath = entry.getKey();
+          int sourceNodeId = entry.getValue();
+          byte[] content = SyncClient.fetchFileViaSocket(sourceNodeId, filePath);
+          if (content != null) {
+            SyncClient.saveFileLocally(filePath, content, nodeId);
+          }
+        }
 
-  @Override
-  public String saveFileByPath(String relativePath, byte[] content) {
-    try {
-      Path fullPath = baseDir.resolve(relativePath);
-      Files.createDirectories(fullPath.getParent());
-      Files.write(fullPath, content);
-      return "Saved via path";
-    } catch (IOException e) {
-      return "Error: " + e.getMessage();
-    }
-  }
+        for (String filePath : filesToDelete) {
+          Path fullPath = Paths.get("storage/node_" + nodeId).resolve(filePath);
+          try {
+            Files.deleteIfExists(fullPath);
+            System.out.println("🗑️ Deleted stale file: " + filePath);
+          } catch (IOException e) {
+            System.err.println("❌ Could not delete " + filePath);
+          }
+        }
 
-  @Override
-  public String deleteFileByPath(String relativePath) {
-    try {
-      Path fullPath = baseDir.resolve(relativePath);
-      Files.deleteIfExists(fullPath);
-      return "Deleted via path";
-    } catch (IOException e) {
-      return "Error: " + e.getMessage();
-    }
+      } catch (Exception e) {
+        System.err.println("❌ Sync error: " + e.getMessage());
+      }
+    }).start();
   }
 
 }

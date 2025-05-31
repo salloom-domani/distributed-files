@@ -25,8 +25,7 @@ public class NodeServer {
       Runtime.getRuntime().addShutdownHook(new ShutDownHookThread(node));
 
       // At the bottom of NodeLauncher.java after binding the node
-      int syncPort = 3000 + nodeId;
-      new Thread(new SyncServer(syncPort, nodeId)).start();
+      new SyncServer(nodeId).start();
     } catch (Exception e) {
       e.printStackTrace();
     }
