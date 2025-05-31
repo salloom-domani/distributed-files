@@ -1,0 +1,7 @@
+register alice dev employee
+login alice
+upload example.txt
+view example.txt
+sleep 1000
+delete example.txt
+
