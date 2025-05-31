@@ -16,13 +16,7 @@ public interface NodeInterface extends Remote {
 
   String deleteFile(String department, String filename) throws RemoteException;
 
-  void synchronizeWithPeers(List<Integer> ids) throws RemoteException;
-
   Map<String, Long> getFileTimestamps() throws RemoteException;
 
-  byte[] readFileByPath(String path) throws RemoteException;
-
-  String saveFileByPath(String path, byte[] content) throws RemoteException;
-
-  String deleteFileByPath(String path) throws RemoteException;
+  void syncFrom(Map<String, Integer> fileToSource, List<String> filesToDelete) throws RemoteException;
 }

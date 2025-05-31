@@ -58,7 +58,7 @@ public class Coordinator extends UnicastRemoteObject implements CoordinatorInter
 
     // ✅ Update global file log
     String fullPath = dept + "/" + filename;
-    globalFileLog.put(fullPath, new FileMeta(System.currentTimeMillis(), false));
+    globalFileLog.put(fullPath, new FileMeta(System.currentTimeMillis(), false, node.getNodeId()));
     return result;
   }
 
@@ -116,7 +116,7 @@ public class Coordinator extends UnicastRemoteObject implements CoordinatorInter
     String result = node.deleteFile(dept, filename);
 
     String fullPath = dept + "/" + filename;
-    globalFileLog.put(fullPath, new FileMeta(System.currentTimeMillis(), true));
+    globalFileLog.put(fullPath, new FileMeta(System.currentTimeMillis(), true, node.getNodeId()));
     return result;
   }
 
@@ -134,79 +134,45 @@ public class Coordinator extends UnicastRemoteObject implements CoordinatorInter
 
   @Override
   public void synchronizeNodes() throws RemoteException {
-    System.out.println("🔄 Starting synchronization...");
+    System.out.println("🔄 Syncing...");
 
-    for (NodeInterface node : nodes) {
-      Map<String, Long> nodeFiles;
-      try {
-        nodeFiles = node.getFileTimestamps();
-      } catch (Exception e) {
-        System.out.println("⚠️ Failed to fetch files from Node " + node.getNodeId());
-        continue;
-      }
+    for (NodeInterface targetNode : nodes) {
+      Map<String, Integer> fileToSource = new HashMap<>();
+      List<String> filesToDelete = new ArrayList<>();
+      Map<String, Long> targetFiles = targetNode.getFileTimestamps();
 
-      // 1. Sync files TO node (based on global log)
       for (Map.Entry<String, FileMeta> entry : globalFileLog.entrySet()) {
         String path = entry.getKey();
         FileMeta meta = entry.getValue();
+        long targetTime = targetFiles.getOrDefault(path, 0L);
 
+        // Handle deleted files
         if (meta.deleted) {
-          if (nodeFiles.containsKey(path)) {
-            try {
-              node.deleteFileByPath(path);
-              System.out.println("🗑️ Deleted " + path + " from Node " + node.getNodeId());
-            } catch (Exception e) {
-              System.out.println("❌ Failed to delete " + path + " on Node " + node.getNodeId());
-            }
+          if (targetTime > 0) {
+            filesToDelete.add(path);
           }
           continue;
         }
 
-        long nodeTimestamp = nodeFiles.getOrDefault(path, 0L);
-        if (nodeTimestamp < meta.lastModified) {
-          byte[] content = getFileFromAnyNode(path);
-          if (content != null) {
-            node.saveFileByPath(path, content);
-            System.out.println("📤 Sent updated " + path + " to Node " + node.getNodeId());
-          } else {
-            System.out.println("❌ Could not find content for " + path + " in any node");
-          }
+        // ✅ Skip syncing to the source node itself
+        if (meta.sourceNodeId == targetNode.getNodeId()) {
+          continue;
+        }
+
+        // File is outdated or missing on this node
+        if (targetTime < meta.lastModified) {
+          fileToSource.put(path, meta.sourceNodeId);
         }
       }
 
-      // 2. Sync files FROM node (new or updated files not in global log)
-      for (Map.Entry<String, Long> entry : nodeFiles.entrySet()) {
-        String path = entry.getKey();
-        long timestamp = entry.getValue();
-
-        FileMeta current = globalFileLog.get(path);
-        if (current == null || (current.lastModified < timestamp && !current.deleted)) {
-          try {
-            byte[] content = node.readFileByPath(path);
-            if (content != null) {
-              globalFileLog.put(path, new FileMeta(timestamp, false));
-              System.out.println("📥 Updated " + path + " from Node " + node.getNodeId());
-            }
-          } catch (Exception e) {
-            System.out.println("❌ Failed to read new file " + path + " from Node " + node.getNodeId());
-          }
-        }
+      if (!fileToSource.isEmpty() || !filesToDelete.isEmpty()) {
+        targetNode.syncFrom(fileToSource, filesToDelete);
+        System.out.println("📡 Node " + targetNode.getNodeId() + " sync: " +
+            fileToSource.size() + " updates, " + filesToDelete.size() + " deletions");
       }
     }
 
-    System.out.println("✅ Synchronization complete.");
-  }
-
-  private byte[] getFileFromAnyNode(String path) {
-    for (NodeInterface node : nodes) {
-      try {
-        byte[] content = node.readFileByPath(path);
-        if (content != null)
-          return content;
-      } catch (Exception ignored) {
-      }
-    }
-    return null;
+    System.out.println("✅ Sync complete.");
   }
 
   private NodeInterface getNodeForUser(String username) {
@@ -220,10 +186,13 @@ public class Coordinator extends UnicastRemoteObject implements CoordinatorInter
   private static class FileMeta {
     long lastModified;
     boolean deleted;
+    int sourceNodeId;
 
-    FileMeta(long lastModified, boolean deleted) {
+    FileMeta(long lastModified, boolean deleted, int sourceNodeId) {
       this.lastModified = lastModified;
       this.deleted = deleted;
+      this.sourceNodeId = sourceNodeId;
     }
   }
+
 }

@@ -6,31 +6,50 @@ import java.nio.file.*;
 import java.util.List;
 
 public class SyncClient {
-  public static void syncWith(int nodeId) {
-    try (Socket socket = new Socket("localhost", 3000 + nodeId);
-        DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {
+  public static byte[] fetchFileViaSocket(int sourceNodeId, String filePath) {
+    try (Socket socket = new Socket("localhost", 6000 + sourceNodeId);
+        ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+        ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
 
-      Path root = Paths.get("storage/node_" + nodeId);
-      List<Path> files = Files.walk(root)
-          .filter(Files::isRegularFile)
-          .toList();
+      out.writeObject("READ");
+      out.writeObject(filePath);
 
-      out.writeInt(files.size());
-
-      for (Path file : files) {
-        Path deptPath = root.relativize(file.getParent());
-        String dept = deptPath.toString();
-        byte[] content = Files.readAllBytes(file);
-
-        out.writeUTF(dept);
-        out.writeUTF(file.getFileName().toString());
-        out.writeInt(content.length);
-        out.write(content);
+      Object response = in.readObject();
+      if (response instanceof byte[]) {
+        return (byte[]) response;
       }
 
-      System.out.println("Node " + nodeId + " synced to " + nodeId);
+    } catch (IOException | ClassNotFoundException e) {
+      System.err.println("❌ Error fetching file: " + e.getMessage());
+    }
+    return null;
+  }
+
+  public static void saveFileLocally(String relativePath, byte[] content, int nodeId) {
+    try {
+      Path baseDir = Paths.get("storage/node_" + nodeId);
+      Path fullPath = baseDir.resolve(relativePath);
+      Files.createDirectories(fullPath.getParent());
+      Files.write(fullPath, content);
+      System.out.println("✔ Saved " + relativePath + " to node_" + nodeId);
     } catch (IOException e) {
-      System.err.println("Sync failed from Node " + nodeId + ": " + e.getMessage());
+      System.err.println("❌ Error saving file: " + e.getMessage());
+    }
+  }
+
+  public static void syncFilesFromPeer(int sourceNodeId, int currentNodeId, List<String> filesToSync) {
+    for (String filePath : filesToSync) {
+      try {
+        byte[] content = fetchFileViaSocket(sourceNodeId, filePath);
+        if (content != null) {
+          saveFileLocally(filePath, content, currentNodeId);
+          System.out.println("✔ Synced " + filePath + " from Node " + sourceNodeId);
+        } else {
+          System.out.println("✘ Failed to get " + filePath + " from Node " + sourceNodeId);
+        }
+      } catch (Exception e) {
+        System.out.println("❌ Error syncing " + filePath + ": " + e.getMessage());
+      }
     }
   }
 }
