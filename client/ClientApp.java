@@ -23,16 +23,19 @@ public class ClientApp {
           System.out.println("\nOptions: logout | upload | list | view | delete | exit");
         }
         System.out.print("> ");
-        String cmd = scanner.nextLine();
+        String line = scanner.nextLine().trim();
+        String[] params = line.split("\\s+", 2); // split into command and the rest
+
+        String cmd = params[0];
 
         switch (cmd) {
           case "register" -> register(scanner);
           case "login" -> login(scanner);
           case "logout" -> logout(scanner);
-          case "upload" -> upload(scanner);
+          case "upload" -> upload(scanner, params.length > 1 ? params[1] : null);
           case "list" -> list(scanner);
-          case "view" -> view(scanner);
-          case "delete" -> delete(scanner);
+          case "view" -> view(scanner, params.length > 1 ? params[1] : null);
+          case "delete" -> delete(scanner, params.length > 1 ? params[1] : null);
           case "exit" -> System.exit(0);
           default -> System.out.println("Unknown command.");
         }
@@ -75,14 +78,26 @@ public class ClientApp {
     tokenId = null;
   }
 
-  private static void upload(Scanner scanner) throws Exception {
+  private static void upload(Scanner scanner, String fileArg) throws Exception {
     if (tokenId == null) {
       System.out.println("Please login first.");
       return;
     }
-    System.out.print("File path: ");
-    String pathStr = scanner.nextLine();
-    Path path = Paths.get(pathStr);
+
+    String filePath;
+    if (fileArg != null) {
+      filePath = fileArg;
+    } else {
+      System.out.print("File path: ");
+      filePath = scanner.nextLine().trim();
+    }
+
+    Path path = Paths.get(filePath);
+    if (!Files.exists(path)) {
+      System.out.println("File not found.");
+      return;
+    }
+
     byte[] content = Files.readAllBytes(path);
     String result = coordinator.addFile(tokenId, path.getFileName().toString(), content);
     System.out.println(result);
@@ -97,13 +112,15 @@ public class ClientApp {
     System.out.println(result);
   }
 
-  private static void view(Scanner scanner) throws Exception {
+  private static void view(Scanner scanner, String filename) throws Exception {
     if (tokenId == null) {
       System.out.println("Please login first.");
       return;
     }
-    System.out.print("Filename to view: ");
-    String filename = scanner.nextLine();
+    if (filename == null) {
+      System.out.print("Filename to view: ");
+      filename = scanner.nextLine().trim();
+    }
     byte[] content = coordinator.viewFile(tokenId, filename);
     if (content != null) {
       System.out.print(new String(content));
@@ -112,13 +129,15 @@ public class ClientApp {
     }
   }
 
-  private static void delete(Scanner scanner) throws Exception {
+  private static void delete(Scanner scanner, String filename) throws Exception {
     if (tokenId == null) {
       System.out.println("Please login first.");
       return;
     }
-    System.out.print("Filename to delete: ");
-    String filename = scanner.nextLine();
+    if (filename == null) {
+      System.out.print("Filename to delete: ");
+      filename = scanner.nextLine().trim();
+    }
     String result = coordinator.deleteFile(tokenId, filename);
     System.out.println(result);
   }
